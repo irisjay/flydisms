@@ -27,10 +27,9 @@ var mergeAll =	function (streams) {
 							})
 						}
 						else {
-							streams .some (function (s) {
+							streams .forEach (function (s) {
 								if (s .hasVal) {
 									self (s ());
-									return true;
 								}
 							});
 						}
@@ -229,20 +228,52 @@ var switchLatest =	function (s) {
 										.thru (tap, self)
 								}, [s]);
 					};
+var stream_merge =	function (s) {
+                        var self = stream ();
+                        var n = stream (0);
+                        s .thru (tap, function () {
+                            if (! s () .end ()) {
+                                n (n () + 1);
+                                s ()
+                                    .thru (tap, self)
+                                    .end
+                                        .thru (tap, function () {
+                                            n (n () - 1);
+                                        })
+                            }
+                        });
+                        var ended = function () {
+                            return n () === 0 && s .end ()
+                        };
+                        mergeAll ([
+                            n .thru (map, ended),
+                            s .end .thru (map, ended)
+                        ]) .thru (filter, R .identity)
+                        .thru (trans, R .take (1))
+                        .thru (tap, function () {
+                            self .end (true);
+                        });
+						return self;
+					};
 					
 var from_promise =	function (p) {
 						var s = stream ();
 						p .then (s) .then (function () { s .end (true) });
 						return s;
 					};
-var project =	function (to, s) {
-					s
-						.thru (tap, to)
-						.end .thru (tap, function () {
-							to .end (true);
-						})
+var project =	R .curry (function (to, s) {
+                    if (s .end ())
+                        to .end (true);
+                    else {
+    					s
+    						.thru (tap, to)
+    						.end .thru (tap, function () {
+    							to .end (true);
+    						})
+                    }
 					return s;
-				}
+				})
+var reflect = R .flip (project);
 				
 var from =	function (pushes) {
 				var s = stream ();
@@ -256,3 +287,74 @@ var begins_with =	function (what, s) {
 						return s;
 					}
 var _begins_with = begins_with;
+
+var concat_on =	function (ender, s) {
+					var _ = stream (s);
+					s .end .thru (tap, function () {
+						_ (ender ());	
+					});
+					return _ .thru (switchLatest);
+				}
+				
+var split_on =	function (splitter, s) {
+	return	splitter .thru (map, function (x) {
+		return news (s) .thru (takeUntil, news (splitter));
+	})
+}
+
+var only_ =	function (x) {
+	return function (_) {
+	    _ (x);
+	    _ .end (true);
+	};
+}
+
+var product = function (ss) {
+	return stream_pushes (function (p) {
+		p (R .map (function (s) {
+		    return s ()
+		}, ss));
+		R .forEachObjIndexed (function (s, k) {
+			s .thru (tap, function (x) {
+				p (
+					R .assoc (k, x) (p ()))
+			})
+		}) (ss);
+	})
+}
+var array_product = function (ss) {
+	return stream_pushes (function (p) {
+		p (ss .map (function (s) {
+		    return s ();
+		}));
+		R .forEach (function (s, k) {
+			s .thru (tap, function (x) {
+				p (
+					R .update (k, x) (p ()))
+			})
+		}) (ss)
+	})
+}
+
+
+var key_sum = function (s1) {
+	return function (s2) {
+		return stream_pushes (function (e) {
+			e ({});
+			s1 .thru (tap, function (s) {
+				var _ = e ();
+				R .forEachObjIndexed (function (v, k) {
+					_ = R .assoc (k, v) (_)
+				}) (s)
+				e (_);
+			});
+			s2 .thru (tap, function (s) {
+				var _ = e ();
+				R .forEachObjIndexed (function (v, k) {
+					_ = R .assoc (k, v) (_)
+				}) (s)
+				e (_);
+			})
+		})
+	}
+}
