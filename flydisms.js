@@ -74,7 +74,7 @@ var dropRepeatsWith = curry (2, dropRepeatsWith_);
 var promise =	function (stream) {
 					var resolve;
 					var promise = new Promise (function (res) { resolve = res; })
-					var listener = stream .thru (flyd .on, resolve);
+					var listener = [stream] .map (flyd .on (resolve)) [0];
 					listener .end && promise .then (function () { listener .end (true); })
 					return promise;
 				}
@@ -140,7 +140,7 @@ var every =	function (dur) {
 				return s;
 			};
 
-var tap =	function (affect, stream) {
+var tap =	R .curry (function (affect, stream) {
 				if (stream .end) {
 					if (! stream .end ()) {
 						var effect = flyd .on (affect, stream);
@@ -154,10 +154,10 @@ var tap =	function (affect, stream) {
 					}
 				}
 				return stream;
-			};
+			});
 
 var takeUntil = curry (2, function (term, src) {
-					return flyd .endsOn (mergeAll ([term, src .end ? src .end : src]), src .thru (map, id));
+					return flyd .endsOn (mergeAll ([term, src .end ? src .end : src]), [src] .map (map (id)) [0]);
 				});
 
 var map =	curry (2, function (f, s) {
@@ -177,10 +177,10 @@ var scan =	curry (3, function (f, acc, s) {
 
 var news =  function (s) {
 				if (s .hasVal) {
-					return	s .thru (trans, R .drop (1));
+					return	[s] .map (trans (R .drop (1))) [0];
 				}
 				else
-					return	s .thru (trans, R .drop (0))
+					return	[s] .map (trans (R .drop (0))) [0];
 			};
 
 var flatMap =	curry (2, function (f, s) {
@@ -223,36 +223,39 @@ var next =  function (s) {
 			
 var switchLatest =	function (s) {
 						return	combine (function (self) {
-									s ()
-										.thru (takeUntil, news (s))
-										.thru (tap, self)
+									[s ()]
+										.map (takeUntil (news (s)))
+										.forEach (tap (self))
 								}, [s]);
 					};
 var stream_merge =	function (s) {
                         var self = stream ();
                         var n = stream (0);
-                        s .thru (tap, function () {
+                        s .forEach (tap (function () {
                             if (! s () .end ()) {
                                 n (n () + 1);
-                                s ()
-                                    .thru (tap, self)
-                                    .end
-                                        .thru (tap, function () {
-                                            n (n () - 1);
-                                        })
+                                [s ()]
+									.map (tap (self))
+									.map (function (x) {
+										return x .end;	
+									})
+									.forEach (tap (function () {
+										n (n () - 1);
+									}))
                             }
-                        });
+                        }));
                         var ended = function () {
                             return n () === 0 && s .end ()
                         };
-                        mergeAll ([
-                            n .thru (map, ended),
-                            s .end .thru (map, ended)
-                        ]) .thru (filter, R .identity)
-                        .thru (trans, R .take (1))
-                        .thru (tap, function () {
-                            self .end (true);
-                        });
+                        [mergeAll ([
+                            [n] .map (map (ended)) [0],
+                            [s .end] .map (map (ended)) [0]
+                        ])]
+	                        .map (filter (R .identity))
+	                        .map (trans (R .take (1)))
+	                        .forEach (tap (function () {
+	                            self .end (true);
+	                        }));
 						return self;
 					};
 					
@@ -265,11 +268,14 @@ var project =	R .curry (function (to, s) {
                     if (s .end ())
                         to .end (true);
                     else {
-    					s
-    						.thru (tap, to)
-    						.end .thru (tap, function () {
-    							to .end (true);
+    					[s]
+    						.map (tap (to))
+    						.map (function (x) {
+    							return x .end
     						})
+    						.forEach (tap (function () {
+    							to .end (true);
+    						}))
                     }
 					return s;
 				})
@@ -288,19 +294,19 @@ var begins_with =	function (what, s) {
 					}
 var _begins_with = begins_with;
 
-var concat_on =	function (ender, s) {
+var concat_on =	R .curry (function (ender, s) {
 					var _ = stream (s);
-					s .end .thru (tap, function () {
+					[s .end] .forEach (tap (function () {
 						_ (ender ());	
-					});
-					return _ .thru (switchLatest);
-				}
+					}));
+					return [_] .map (switchLatest) [0];
+				});
 				
-var split_on =	function (splitter, s) {
-	return	splitter .thru (map, function (x) {
-		return news (s) .thru (takeUntil, news (splitter));
-	})
-}
+var split_on = R .curry (function (splitter, s) {
+	return [splitter] .map (map (function (x) {
+		return [news (s)] .map (takeUntil (news (splitter))) [0];
+	})) [0]
+});
 
 var only_ =	function (x) {
 	return function (_) {
@@ -315,10 +321,10 @@ var product = function (ss) {
 		    return s ()
 		}, ss));
 		R .forEachObjIndexed (function (s, k) {
-			s .thru (tap, function (x) {
+			[s] .forEach (tap (function (x) {
 				p (
 					R .assoc (k, x) (p ()))
-			})
+			}))
 		}) (ss);
 	})
 }
@@ -328,33 +334,31 @@ var array_product = function (ss) {
 		    return s ();
 		}));
 		R .forEach (function (s, k) {
-			s .thru (tap, function (x) {
+			[s] .forEach (tap (function (x) {
 				p (
 					R .update (k, x) (p ()))
-			})
+			}))
 		}) (ss)
 	})
 }
 
 
-var key_sum = function (s1) {
-	return function (s2) {
-		return stream_pushes (function (e) {
-			e ({});
-			s1 .thru (tap, function (s) {
-				var _ = e ();
-				R .forEachObjIndexed (function (v, k) {
-					_ = R .assoc (k, v) (_)
-				}) (s)
-				e (_);
-			});
-			s2 .thru (tap, function (s) {
-				var _ = e ();
-				R .forEachObjIndexed (function (v, k) {
-					_ = R .assoc (k, v) (_)
-				}) (s)
-				e (_);
-			})
-		})
-	}
-}
+var key_sum = R .curry (function (s1, s2) {
+	return stream_pushes (function (e) {
+		e ({});
+		[s1] .forEach (tap (function (s) {
+			var _ = e ();
+			R .forEachObjIndexed (function (v, k) {
+				_ = R .assoc (k, v) (_)
+			}) (s)
+			e (_);
+		}));
+		[s2] .forEach (tap (function (s) {
+			var _ = e ();
+			R .forEachObjIndexed (function (v, k) {
+				_ = R .assoc (k, v) (_)
+			}) (s)
+			e (_);
+		}))
+	})
+});
