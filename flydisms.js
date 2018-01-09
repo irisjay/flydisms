@@ -362,3 +362,36 @@ var key_sum = R .curry (function (s1, s2) {
 		}))
 	})
 });
+var transition = function (fn) {
+	return function (intent) {
+		var next_transit = stream ('go');
+		return [intent]
+			.map (split_on (next_transit))
+			.map (map (function (intent_group) {
+				return	[intent_group]
+							.map (trans (R .take (1)))
+							.map (map (function (head_intent) {
+								return fn (head_intent, news (intent_group))
+							}))
+							.map (tap (function (tend) {
+								if (typeof tend !== 'function')
+									throw new Error ('did not return tend function');
+							}))
+						[0]
+			}))
+			.map (map (function (x) {
+				return [from_promise (promise (x))]
+					.map (map (function (tend) {
+						var _state = stream ();
+						[_state .end] .forEach (tap (function () {
+							next_transit ('go');
+						}));
+						tend (_state);
+						return _state;
+					}))
+					.map (switchLatest)
+				[0]
+			}))
+			.map (switchLatest)
+	}
+};
