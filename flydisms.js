@@ -393,5 +393,6 @@ var transition = function (fn) {
 				[0]
 			}))
 			.map (switchLatest)
+		[0]
 	}
 };
