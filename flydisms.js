@@ -231,17 +231,15 @@ var switchLatest =	function (s) {
 var stream_merge =	function (s) {
                         var self = stream ();
                         var n = stream (0);
-                        s .forEach (tap (function () {
+                        [s] .forEach (tap (function () {
                             if (! s () .end ()) {
                                 n (n () + 1);
                                 [s ()]
-									.map (tap (self))
-									.map (function (x) {
-										return x .end;	
-									})
+									.forEach (tap (self));
+								[s () .end]
 									.forEach (tap (function () {
 										n (n () - 1);
-									}))
+									}));
                             }
                         }));
                         var ended = function () {
@@ -380,7 +378,7 @@ var transition = function (fn) {
 						[0]
 			}))
 			.map (map (function (x) {
-				return [from_promise (promise (x))]
+				return [x]
 					.map (map (function (tend) {
 						var _state = stream ();
 						[_state .end] .forEach (tap (function () {
@@ -389,7 +387,7 @@ var transition = function (fn) {
 						tend (_state);
 						return _state;
 					}))
-					.map (switchLatest)
+					.map (stream_merge)
 				[0]
 			}))
 			.map (switchLatest)
