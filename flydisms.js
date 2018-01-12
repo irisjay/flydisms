@@ -363,7 +363,8 @@ var key_sum = R .curry (function (s1, s2) {
 var transition = function (fn) {
 	return function (intent) {
 		var next_transit = stream ('go');
-		return [intent]
+		var state = stream ();
+		[intent]
 			.map (split_on (next_transit))
 			.map (map (function (intent_group) {
 				return	[intent_group]
@@ -377,20 +378,17 @@ var transition = function (fn) {
 							}))
 						[0]
 			}))
-			.map (map (function (x) {
+			.forEach (tap (function (x) {
 				return [x]
-					.map (map (function (tend) {
-						var _state = stream ();
-						[_state .end] .forEach (tap (function () {
+					.forEach (tap (function (tend) {
+						var tenure = stream ();
+						[tenure] .forEach (tap (state));
+						[tenure .end] .forEach (tap (function () {
 							next_transit ('go');
 						}));
-						tend (_state);
-						return _state;
+						tend (tenure);
 					}))
-					.map (stream_merge)
-				[0]
 			}))
-			.map (switchLatest)
-		[0]
+		return state;
 	}
 };
